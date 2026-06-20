@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three.js 手势交互粒子系统</title>
+    <title>全国用电量实时全息看板</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #050510; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
         canvas { display: block; }
-        
-        /* 摄像头预览 (隐藏或缩小显示) */
+
         #video-container {
             position: absolute;
             bottom: 20px;
@@ -19,75 +18,120 @@
             overflow: hidden;
             border: 2px solid rgba(255,255,255,0.2);
             z-index: 10;
-            display: block; /* 默认隐藏，可开启调试 */
+            display: block;
         }
         #input_video { transform: scaleX(-1); width: 100%; height: 100%; object-fit: cover; }
 
-        /* UI 面板 */
-        #ui-panel {
+        /* 全息地板网格线 */
+        #grid-overlay {
             position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 280px;
-            background: rgba(20, 20, 30, 0.7);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            padding: 20px;
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: white;
-            z-index: 100;
-            transition: transform 0.3s ease, opacity 0.3s ease;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            bottom: 0; left: 0; right: 0; height: 40%;
+            background: radial-gradient(ellipse at center, rgba(0,150,255,0.06) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 1;
         }
 
-        #ui-panel.collapsed {
-            transform: translateX(120%);
+        /* 玻璃拟态主看板 */
+        #dashboard {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            width: 320px;
+            background: rgba(10, 15, 30, 0.65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 20px;
+            border: 1px solid rgba(100, 180, 255, 0.15);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+            padding: 24px;
+            color: #fff;
+            z-index: 100;
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+        }
+        #dashboard.collapsed {
+            transform: translateX(-110%);
             opacity: 0;
             pointer-events: none;
         }
 
-        /* 标题与控制 */
-        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        h2 { margin: 0; font-size: 18px; font-weight: 600; background: linear-gradient(45deg, #00f260, #0575e6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        
-        /* 控件样式 */
-        .control-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 8px; font-size: 12px; color: #aaa; letter-spacing: 1px; }
-        
-        select, input[type="color"] {
-            width: 100%;
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid rgba(255,255,255,0.2);
-            background: rgba(0,0,0,0.3);
-            color: white;
-            outline: none;
-            cursor: pointer;
+        .dash-title {
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 2px;
+            color: rgba(180, 210, 255, 0.8);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .dash-divider {
+            height: 1px;
+            background: linear-gradient(90deg, rgba(0,150,255,0.4), transparent);
+            margin-bottom: 18px;
         }
 
-        /* 按钮网格 */
-        .shape-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .shape-btn {
-            background: rgba(255,255,255,0.1);
-            border: none;
-            color: white;
-            padding: 8px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: 0.2s;
-            font-size: 13px;
+        .province-name {
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: 4px;
+            background: linear-gradient(135deg, #60b0ff, #c0e0ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+            transition: all 0.3s ease;
         }
-        .shape-btn:hover, .shape-btn.active { background: rgba(0, 242, 96, 0.3); color: #fff; }
+        .province-sub {
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+        }
 
-        /* 全屏与显隐按钮 */
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .metric-label { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 1px; }
+        .metric-value { font-size: 22px; font-weight: 600; color: #ffb74d; transition: all 0.3s ease; }
+        .metric-unit { font-size: 11px; color: rgba(255,255,255,0.4); margin-left: 4px; }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 1px;
+        }
+        .status-badge.high { background: rgba(255,80,80,0.2); color: #ff7070; border: 1px solid rgba(255,80,80,0.3); }
+        .status-badge.normal { background: rgba(100,200,100,0.15); color: #80e080; border: 1px solid rgba(100,200,100,0.25); }
+        .status-badge.low { background: rgba(60,140,255,0.15); color: #80b8ff; border: 1px solid rgba(60,140,255,0.25); }
+
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .status-dot.high { background: #ff5050; box-shadow: 0 0 8px #ff5050; }
+        .status-dot.normal { background: #60e060; box-shadow: 0 0 8px #60e060; }
+        .status-dot.low { background: #5090ff; box-shadow: 0 0 8px #5090ff; }
+
+        .color-row { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+        .color-row label { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 1px; }
+        #color-picker {
+            width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
+            background: transparent; cursor: pointer; padding: 2px;
+        }
+
+        .hint-row { margin-top: 14px; font-size: 10px; color: rgba(255,255,255,0.3); line-height: 1.6; }
+
+        /* 浮动按钮 */
         .float-btn {
             position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 40px;
-            height: 40px;
-            background: rgba(20, 20, 30, 0.7);
+            top: 24px;
+            width: 40px; height: 40px;
+            background: rgba(10, 15, 30, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -96,19 +140,19 @@
             z-index: 90;
             border: 1px solid rgba(255,255,255,0.1);
             color: white;
+            font-size: 18px;
             transition: 0.2s;
         }
-        .float-btn:hover { background: rgba(255,255,255,0.2); }
-        
-        #toggle-ui { right: 20px; }
-        #toggle-fs { right: 70px; }
+        .float-btn:hover { background: rgba(255,255,255,0.15); }
+        #toggle-ui { left: 24px; top: auto; bottom: 24px; }
+        #toggle-fs { right: 24px; }
 
         #loading {
             position: absolute;
             top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             color: white;
-            font-size: 24px;
+            font-size: 20px;
             text-align: center;
             z-index: 200;
             pointer-events: none;
@@ -116,117 +160,184 @@
         }
         .spinner {
             width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3);
-            border-top: 4px solid #00f260; border-radius: 50%;
+            border-top: 4px solid #ffb74d; border-radius: 50%;
             animation: spin 1s linear infinite; margin: 0 auto 10px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* 省份切换过渡提示 */
+        #province-toast {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            font-size: 60px;
+            font-weight: 700;
+            letter-spacing: 6px;
+            color: rgba(255,200,100,0.9);
+            pointer-events: none;
+            z-index: 50;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease;
+            opacity: 0;
+        }
+        #province-toast.show {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
 
-    <!-- Loading -->
     <div id="loading">
         <div class="spinner"></div>
-        <div>正在启动摄像头与AI模型...</div>
+        <div>正在启动全国电力全息看板...</div>
     </div>
 
-    <!-- 隐藏的视频元素用于 MediaPipe -->
+    <div id="grid-overlay"></div>
+
     <div id="video-container">
         <video id="input_video"></video>
     </div>
 
-    <!-- UI 控制面板 -->
-    <div id="toggle-fs" class="float-btn" title="全屏">⛶</div>
-    <div id="toggle-ui" class="float-btn" title="切换面板">☰</div>
+    <div id="dashboard">
+        <div class="dash-title">⚡ 全国用电量实时全息看板</div>
+        <div class="dash-divider"></div>
+        <div class="province-name" id="province-name">北京</div>
+        <div class="province-sub" id="province-sub">BEIJING · 华北电网</div>
 
-    <div id="ui-panel">
-        <div class="panel-header">
-            <h2>注意力控制中心</h2>
+        <div class="metric-row">
+            <span class="metric-label">实时负荷</span>
+            <span><span class="metric-value" id="metric-power">3200</span><span class="metric-unit">万 kW</span></span>
         </div>
 
-        <div class="control-group">
-            <label>注意力几何态</label>
-            <div class="shape-grid">
-                <button class="shape-btn active" data-shape="heart">❤ 爱心</button>
-                <button class="shape-btn" data-shape="saturn">🪐 土星</button>
-                <button class="shape-btn" data-shape="flower">🌸 花朵</button>
-                <button class="shape-btn" data-shape="buddha">🧘 佛像</button>
-                <button class="shape-btn" data-shape="fireworks">🎆 烟花球</button>
-                <button class="shape-btn" data-shape="torus">🍩 甜甜圈</button>
-            </div>
+        <div class="metric-row">
+            <span class="metric-label">运行状态</span>
+            <span class="status-badge normal" id="status-badge">
+                <span class="status-dot normal"></span> 正常
+            </span>
         </div>
 
-        <div class="control-group">
-            <label>粒子颜色</label>
-            <input type="color" id="color-picker" value="#00f260">
+        <div class="metric-row">
+            <span class="metric-label">省内排名</span>
+            <span style="font-size:14px;color:rgba(255,255,255,0.7);" id="metric-rank">#12 / 34</span>
         </div>
-        
-        <div class="control-group" style="font-size: 11px; color: #666; margin-top: 20px;">
-            操作说明：<br>
-            1. 允许摄像头权限<br>
-            2. 张开手掌<br>
-            3. 握拳/捏合
+
+        <div class="color-row">
+            <label>粒子色</label>
+            <input type="color" id="color-picker" value="#ffaa33">
+        </div>
+
+        <div class="hint-row">
+            🖐 左手滑动 → 下一省<br>
+            ✋ 右手滑动 → 上一省
         </div>
     </div>
 
+    <div id="toggle-fs" class="float-btn" title="全屏">⛶</div>
+    <div id="toggle-ui" class="float-btn" title="切换面板">☰</div>
+    <div id="province-toast"></div>
+
     <!-- 引入库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- MediaPipe Hands -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <script>
-        // ================= 配置与全局变量 =================
+        // ==================== 配置与全局变量 ====================
         const PARTICLE_COUNT = 15000;
-        let scene, camera, renderer, particles, geometry;
-        let currentShape = 'heart';
-        let targetPositions = [];
-        let handOpenFactor = 0; // 0 = closed, 1 = open
-        let handPosition = new THREE.Vector3(0, 0, 0);
-        let handDetected = false;
-        
-        // 形状数据缓存
-        const shapes = {
-            heart: [],
-            saturn: [],
-            flower: [],
-            buddha: [],
-            fireworks: [],
-            torus: []
-        };
+        const SWIPE_THRESHOLD = 0.12;
+        const COOLDOWN_MS = 400;
 
-        // ================= 1. Three.js 初始化 =================
+        let scene, camera, renderer, particles, geometry;
+        let targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+        let provinceParticleRanges = [];
+        let selectedProvinceIndex = 0;
+        let handHistory = { Left: [], Right: [] };
+        let isCooldown = false;
+        let provinceHighlightFactor = 0;
+        let baseParticleColor = new THREE.Color('#ffaa33');
+
+        // ==================== 34 省份数据 ====================
+        // x=经度映射(-20~+20), z=纬度映射(+15北~-15南), power=模拟用电量(万kW)
+        const provinces = [
+            { name: '北京', x: 7.3, z: 10.5, power: 2800 },
+            { name: '天津', x: 8.0, z: 9.8, power: 2100 },
+            { name: '河北', x: 6.5, z: 8.5, power: 7200 },
+            { name: '山西', x: 4.5, z: 7.5, power: 5500 },
+            { name: '内蒙古', x: 2.0, z: 13.0, power: 6800 },
+            { name: '辽宁', x: 9.5, z: 12.0, power: 4800 },
+            { name: '吉林', x: 10.5, z: 14.5, power: 2600 },
+            { name: '黑龙江', x: 11.5, z: 17.5, power: 3200 },
+            { name: '上海', x: 10.5, z: 3.0, power: 3500 },
+            { name: '江苏', x: 9.0, z: 4.5, power: 8200 },
+            { name: '浙江', x: 9.8, z: 2.0, power: 6500 },
+            { name: '安徽', x: 7.5, z: 4.0, power: 4200 },
+            { name: '福建', x: 9.0, z: -2.0, power: 3800 },
+            { name: '江西', x: 7.0, z: 0.5, power: 3100 },
+            { name: '山东', x: 8.5, z: 7.0, power: 8500 },
+            { name: '河南', x: 5.5, z: 5.5, power: 6200 },
+            { name: '湖北', x: 5.0, z: 2.5, power: 4500 },
+            { name: '湖南', x: 4.5, z: 0.0, power: 3800 },
+            { name: '广东', x: 6.0, z: -7.0, power: 8300 },
+            { name: '广西', x: 2.5, z: -5.5, power: 3000 },
+            { name: '海南', x: 4.0, z: -11.0, power: 900 },
+            { name: '重庆', x: 2.0, z: 1.5, power: 2800 },
+            { name: '四川', x: 0.0, z: 1.0, power: 5600 },
+            { name: '贵州', x: 2.5, z: -2.5, power: 2600 },
+            { name: '云南', x: -0.5, z: -5.0, power: 3400 },
+            { name: '西藏', x: -8.0, z: 1.5, power: 800 },
+            { name: '陕西', x: 2.5, z: 6.5, power: 4000 },
+            { name: '甘肃', x: -1.5, z: 8.0, power: 2400 },
+            { name: '青海', x: -5.5, z: 5.0, power: 1500 },
+            { name: '宁夏', x: 0.5, z: 9.0, power: 1800 },
+            { name: '新疆', x: -14.0, z: 10.0, power: 3600 },
+            { name: '台湾', x: 11.5, z: -4.5, power: 2800 },
+            { name: '香港', x: 6.5, z: -8.5, power: 1200 },
+            { name: '澳门', x: 5.5, z: -9.0, power: 800 },
+        ];
+
+        // ==================== 1. Three.js 初始化 ====================
         function initThree() {
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x050505, 0.002);
+            scene.fog = new THREE.FogExp2(0x050510, 0.0008);
+            scene.background = new THREE.Color(0x050510);
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 50;
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+            camera.position.set(0, 38, 42);
+            camera.lookAt(0, 0, 0);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.body.appendChild(renderer.domElement);
 
-            // 创建粒子系统
+            // 网格地板 - 全息感
+            const gridHelper = new THREE.PolarGridHelper(28, 64, 40, 128, 0x1a3355, 0x1a3355);
+            gridHelper.position.y = -12;
+            scene.add(gridHelper);
+
+            // 中心辉光
+            const glowGeo = new THREE.RingGeometry(0, 25, 64);
+            const glowMat = new THREE.MeshBasicMaterial({ color: 0x112244, side: THREE.DoubleSide, transparent: true, opacity: 0.3 });
+            const glowRing = new THREE.Mesh(glowGeo, glowMat);
+            glowRing.rotation.x = -Math.PI / 2;
+            glowRing.position.y = -11.5;
+            scene.add(glowRing);
+
+            // 粒子系统
             geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(PARTICLE_COUNT * 3);
-            
-            // 初始随机位置
             for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
-                positions[i] = (Math.random() - 0.5) * 100;
+                positions[i] = (Math.random() - 0.5) * 60;
             }
-
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
-            // 创建材质
             const material = new THREE.PointsMaterial({
-                color: 0x00f260,
-                size: 0.6,
+                color: baseParticleColor,
+                size: 0.45,
                 transparent: true,
-                opacity: 0.8,
+                opacity: 0.85,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
@@ -234,121 +345,64 @@
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
 
-            // 生成所有形状的数据
             generateShapes();
-            
-            // 默认设置为爱心
-            targetPositions = shapes.heart;
+            targetPositions = new Float32Array(shapes.map);
 
-            // 窗口调整事件
             window.addEventListener('resize', onWindowResize);
         }
 
-        // ================= 2. 形状生成算法 =================
+        // ==================== 2. 地图粒子热力生成 ====================
+        const shapes = { map: [] };
+
         function generateShapes() {
-            // 辅助函数：随机点在球体内
-            function randomSpherePoint(radius) {
-                const u = Math.random();
-                const v = Math.random();
-                const theta = 2 * Math.PI * u;
-                const phi = Math.acos(2 * v - 1);
-                const r = Math.cbrt(Math.random()) * radius;
-                return {
-                    x: r * Math.sin(phi) * Math.cos(theta),
-                    y: r * Math.sin(phi) * Math.sin(theta),
-                    z: r * Math.cos(phi)
-                };
-            }
+            const totalPower = provinces.reduce((s, p) => s + p.power, 0);
+            const mapArr = [];
+            provinceParticleRanges = [];
 
-            // --- 爱心 ---
-            const heartArr = [];
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                const t = Math.random() * Math.PI * 2;
-                // 使用拒绝采样填充内部，或者简单地在表面添加厚度
-                // 这里用 parametric 表面公式加随机偏移
-                const x = 16 * Math.pow(Math.sin(t), 3);
-                const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
-                const scale = 1.5;
-                // 添加体积感
-                const r = (Math.random() - 0.5) * 4; 
-                heartArr.push(x * scale, y * scale, r);
-            }
-            shapes.heart = new Float32Array(heartArr);
+            let offset = 0;
+            for (let pi = 0; pi < provinces.length; pi++) {
+                const p = provinces[pi];
+                const count = Math.round(PARTICLE_COUNT * (p.power / totalPower));
+                const actualCount = pi === provinces.length - 1
+                    ? PARTICLE_COUNT - offset
+                    : count;
 
-            // --- 土星 (球体 + 环) ---
-            const saturnArr = [];
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                if (i < PARTICLE_COUNT * 0.4) {
-                    // 星球本体
-                    const p = randomSpherePoint(12);
-                    saturnArr.push(p.x, p.y, p.z);
-                } else {
-                    // 环
+                // 扩散半径 = 基础半径 + 用电量加成
+                const baseRadius = 1.5;
+                const powerRadius = (p.power / 8500) * 3.5;
+                const radius = baseRadius + powerRadius;
+
+                for (let i = 0; i < actualCount; i++) {
+                    // 圆盘内随机分布 (高斯偏移让中心更密)
                     const angle = Math.random() * Math.PI * 2;
-                    const r = 18 + Math.random() * 10;
-                    saturnArr.push(Math.cos(angle) * r, Math.sin(angle) * r * 0.2, Math.sin(angle) * r); // 倾斜
+                    const dist = Math.sqrt(Math.random()) * radius * (0.6 + Math.random() * 0.8);
+                    const px = p.x + Math.cos(angle) * dist;
+                    const pz = p.z + Math.sin(angle) * dist * 0.7; // 纬度方向略微压缩
+
+                    // Y 高度 = 功率映射 + 随机噪声
+                    const baseY = p.power / 500;
+                    const py = baseY * (0.5 + Math.random() * 0.5) + (Math.random() - 0.5) * 1.5;
+
+                    mapArr.push(px, py, pz);
                 }
-            }
-            shapes.saturn = new Float32Array(saturnArr);
 
-            // --- 花朵 (玫瑰线) ---
-            const flowerArr = [];
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                const theta = Math.random() * Math.PI * 2;
-                const rBase = Math.cos(4 * theta); // 4瓣
-                const r = (rBase + 0.5) * 15 * Math.random(); 
-                const z = (Math.random() - 0.5) * 5;
-                flowerArr.push(r * Math.cos(theta), r * Math.sin(theta), z);
+                provinceParticleRanges.push({ start: offset, end: offset + actualCount - 1 });
+                offset += actualCount;
             }
-            shapes.flower = new Float32Array(flowerArr);
 
-            // --- 佛像 (程序化近似：堆叠球体) ---
-            const buddhaArr = [];
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                let p;
-                const rand = Math.random();
-                if (rand < 0.4) {
-                    // 身体 (大球)
-                    p = randomSpherePoint(10);
-                    p.y -= 8;
-                } else if (rand < 0.6) {
-                    // 头 (小球)
-                    p = randomSpherePoint(5);
-                    p.y += 6;
-                } else {
-                    // 盘腿底座 (扁圆)
-                    const angle = Math.random() * Math.PI * 2;
-                    const rad = 8 + Math.random() * 8;
-                    p = { x: Math.cos(angle) * rad, y: -12 + (Math.random()-0.5)*2, z: Math.sin(angle) * rad };
-                }
-                buddhaArr.push(p.x, p.y, p.z);
+            // 补齐差额粒子（浮点舍入导致）
+            while (offset < PARTICLE_COUNT) {
+                const p = provinces[0];
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * 2;
+                mapArr.push(p.x + Math.cos(angle) * dist, p.power / 500 * Math.random(), p.z + Math.sin(angle) * dist);
+                offset++;
             }
-            shapes.buddha = new Float32Array(buddhaArr);
 
-            // --- 烟花/球体 ---
-            const fireArr = [];
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                const p = randomSpherePoint(25);
-                fireArr.push(p.x, p.y, p.z);
-            }
-            shapes.fireworks = new Float32Array(fireArr);
-
-            // --- 甜甜圈 (Torus) ---
-            const torusArr = [];
-            for(let i = 0; i < PARTICLE_COUNT; i++){
-                const u = Math.random() * Math.PI * 2;
-                const v = Math.random() * Math.PI * 2;
-                const R = 15; // 主半径
-                const r = 5;  // 管道半径
-                const x = (R + r * Math.cos(v)) * Math.cos(u);
-                const y = (R + r * Math.cos(v)) * Math.sin(u);
-                const z = r * Math.sin(v);
-                torusArr.push(x, y, z);
-            }
-            shapes.torus = new Float32Array(torusArr);
+            shapes.map = new Float32Array(mapArr);
         }
 
-        // ================= 3. MediaPipe 手势识别 =================
+        // ==================== 3. MediaPipe 双手滑动识别 ====================
         function initMediaPipe() {
             const videoElement = document.getElementById('input_video');
 
@@ -357,7 +411,7 @@
             }});
 
             hands.setOptions({
-                maxNumHands: 1,
+                maxNumHands: 2,
                 modelComplexity: 1,
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
@@ -369,8 +423,8 @@
                 onFrame: async () => {
                     await hands.send({image: videoElement});
                 },
-                width: 320,
-                height: 240
+                width: 480,
+                height: 360
             });
 
             cameraUtils.start()
@@ -379,127 +433,126 @@
                     setTimeout(() => document.getElementById('loading').style.display = 'none', 500);
                 })
                 .catch(err => {
-                    console.error("Camera Init Error:", err);
-                    document.getElementById('loading').innerHTML = "无法启动摄像头。<br>请确保允许权限并使用 HTTPS/Localhost。";
+                    console.error('Camera Init Error:', err);
+                    document.getElementById('loading').innerHTML = '无法启动摄像头。<br>请确保允许权限并使用 HTTPS/Localhost。';
                 });
         }
 
         function onHandsResults(results) {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                handDetected = true;
-                const landmarks = results.multiHandLandmarks[0];
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) return;
 
-                // 1. 计算手的位置 (使用手腕和中指根部的平均值映射到 3D 空间)
-                // MediaPipe 坐标: x [0,1] 左->右, y [0,1] 上->下
-                // Three.js 屏幕坐标映射: x [-Width/2, Width/2], y [Height/2, -Height/2]
-                
-                const x = (0.5 - landmarks[9].x) * 100; // 反转X轴因为镜像
-                const y = (0.5 - landmarks[9].y) * 80;
-                
-                // 平滑移动
-                handPosition.lerp(new THREE.Vector3(x, y, 0), 0.1);
+            const now = performance.now();
 
-                // 2. 计算张合程度 (手掌中心到指尖的平均距离)
-                // 简化：计算拇指尖(4)和食指尖(8)的距离，或者手腕(0)到中指尖(12)的距离
-                
-                // 计算手掌包围盒大小的大致估算
-                const wrist = landmarks[0];
-                const indexTip = landmarks[8];
-                const thumbTip = landmarks[4];
-                const pinkyTip = landmarks[20];
+            for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                const landmarks = results.multiHandLandmarks[i];
+                const handedness = results.multiHandedness[i];
+                if (!handedness) continue;
 
-                // 距离：拇指到小指 (衡量手掌张开宽度)
-                const palmOpenDist = Math.hypot(thumbTip.x - pinkyTip.x, thumbTip.y - pinkyTip.y);
-                
-                // 距离：食指到拇指 (衡量是否捏合/握拳)
-                const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+                const label = handedness.label; // "Left" or "Right"
+                const handX = landmarks[9].x; // 中指根 x 坐标
 
-                // 综合逻辑：如果捏合距离很小，或者手掌宽度很小，则视为“关闭/收缩”
-                // 阈值需根据实际测试微调
-                let openness = 0;
-                
-                // 简单的映射逻辑
-                // palmOpenDist 通常 0.2-0.4 (张开), <0.15 (握拳)
-                // pinchDist 通常 >0.1 (张开), <0.05 (捏合)
-                
-                if (pinchDist < 0.05) {
-                    openness = 0; // 捏合/握紧
-                } else {
-                    // 映射 0.1 到 0.3 到 0-1 之间
-                    openness = (palmOpenDist - 0.1) * 5; 
-                    openness = Math.max(0, Math.min(1, openness));
+                // 记录历史
+                if (!handHistory[label]) handHistory[label] = [];
+                handHistory[label].push({ x: handX, time: now });
+
+                // 保留最近 150ms 内的记录
+                handHistory[label] = handHistory[label].filter(h => now - h.time < 150);
+                if (handHistory[label].length < 2) continue;
+
+                const oldest = handHistory[label][0];
+                const newest = handHistory[label][handHistory[label].length - 1];
+                const deltaX = newest.x - oldest.x;
+
+                // 检测快速滑动
+                if (Math.abs(deltaX) > SWIPE_THRESHOLD && !isCooldown) {
+                    if (label === 'Left') {
+                        nextProvince();
+                    } else if (label === 'Right') {
+                        prevProvince();
+                    }
+
+                    // 冷却
+                    isCooldown = true;
+                    setTimeout(() => { isCooldown = false; }, COOLDOWN_MS);
+
+                    // 清空历史防止重复触发
+                    handHistory.Left = [];
+                    handHistory.Right = [];
+                    break;
                 }
-
-                // 平滑过渡
-                handOpenFactor = THREE.MathUtils.lerp(handOpenFactor, openness, 0.1);
-
-            } else {
-                handDetected = false;
-                // 如果没检测到手，慢慢恢复默认状态（张开/放松）
-                handOpenFactor = THREE.MathUtils.lerp(handOpenFactor, 0.5, 0.05);
-                handPosition.lerp(new THREE.Vector3(0,0,0), 0.05);
             }
         }
 
-        // ================= 4. 动画循环 =================
+        function nextProvince() {
+            selectedProvinceIndex = (selectedProvinceIndex + 1) % provinces.length;
+            provinceHighlightFactor = 0;
+            updateDashboard();
+            showToast(provinces[selectedProvinceIndex].name);
+            // 激发选中省份粒子
+            scatterProvinceParticles(selectedProvinceIndex);
+        }
+
+        function prevProvince() {
+            selectedProvinceIndex = (selectedProvinceIndex - 1 + provinces.length) % provinces.length;
+            provinceHighlightFactor = 0;
+            updateDashboard();
+            showToast(provinces[selectedProvinceIndex].name);
+            scatterProvinceParticles(selectedProvinceIndex);
+        }
+
+        function scatterProvinceParticles(index) {
+            const range = provinceParticleRanges[index];
+            if (!range) return;
+            const pos = particles.geometry.attributes.position.array;
+            for (let i = range.start; i <= range.end; i++) {
+                const i3 = i * 3;
+                pos[i3 + 1] += (Math.random() - 0.5) * 4;
+                pos[i3] += (Math.random() - 0.5) * 2;
+                pos[i3 + 2] += (Math.random() - 0.5) * 2;
+            }
+            particles.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // ==================== 4. 动画循环 ====================
         function animate() {
             requestAnimationFrame(animate);
 
             const positions = particles.geometry.attributes.position.array;
-            
-            // 扩散系数：手张开越大，扩散越大 (1.0 = 标准, >1.0 = 扩散, <1.0 = 紧缩)
-            // 映射 handOpenFactor (0~1) 到 (0.2 ~ 2.5)
-            const spreadScale = 0.2 + (handOpenFactor * 2.0);
-            
-            // 噪声/抖动系数
             const time = Date.now() * 0.001;
+
+            // 选中省份呼吸高亮因子
+            provinceHighlightFactor += (1 - provinceHighlightFactor) * 0.08;
+            const boost = Math.sin(time * 3) * 3 + 3; // 0~6 浮动范围
 
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 const i3 = i * 3;
-                
-                // 目标位置
                 const tx = targetPositions[i3];
                 const ty = targetPositions[i3 + 1];
                 const tz = targetPositions[i3 + 2];
 
-                // 交互逻辑：
-                // 1. 形状插值：这里简化为直接趋向目标，若要做形状渐变动画需额外逻辑，
-                //    但这里通过 continuous lerp 也能实现流畅变换。
-                // 2. 手势缩放：基于原点缩放
-                
-                let targetX = tx * spreadScale;
-                let targetY = ty * spreadScale;
-                let targetZ = tz * spreadScale;
+                let lx = tx;
+                let ly = ty;
+                let lz = tz;
 
-                // 3. 手势位移：整体跟随手移动
-                if (handDetected) {
-                    targetX += handPosition.x;
-                    targetY += handPosition.y;
+                const lerpSpeed = 0.04;
+
+                positions[i3]     += (lx - positions[i3]) * lerpSpeed;
+                positions[i3 + 1] += (ly - positions[i3 + 1]) * lerpSpeed;
+                positions[i3 + 2] += (lz - positions[i3 + 2]) * lerpSpeed;
+            }
+
+            // 选中省份粒子浮动上升
+            const range = provinceParticleRanges[selectedProvinceIndex];
+            if (range) {
+                for (let i = range.start; i <= range.end; i++) {
+                    const i3 = i * 3;
+                    const ty = targetPositions[i3 + 1];
+                    positions[i3 + 1] += (ty + boost * provinceHighlightFactor - positions[i3 + 1]) * 0.06;
                 }
-
-                // 4. 烟花/动态效果 (如果是烟花模式，增加旋转或随机抖动)
-                if (currentShape === 'fireworks') {
-                    // 简单的旋转效果
-                    const angle = time * 0.5;
-                    const x = targetX;
-                    const z = targetZ;
-                    targetX = x * Math.cos(angle) - z * Math.sin(angle);
-                    targetZ = x * Math.sin(angle) + z * Math.cos(angle);
-                }
-
-                // 物理更新 (Lerp 当前位置到目标位置)
-                // 速度系数：手张开时反应快，握拳时反应也可快
-                const lerpSpeed = 0.05 + (handOpenFactor * 0.02);
-
-                positions[i3]     += (targetX - positions[i3]) * lerpSpeed;
-                positions[i3 + 1] += (targetY - positions[i3 + 1]) * lerpSpeed;
-                positions[i3 + 2] += (targetZ - positions[i3 + 2]) * lerpSpeed;
             }
 
             particles.geometry.attributes.position.needsUpdate = true;
-            
-            // 整体缓慢自转，增加3D感
-            particles.rotation.y += 0.001;
+            particles.rotation.y += 0.0008;
 
             renderer.render(scene, camera);
         }
@@ -510,60 +563,84 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // ================= 5. UI 事件绑定 =================
+        // ==================== 5. UI 看板更新 ====================
+        function updateDashboard() {
+            const p = provinces[selectedProvinceIndex];
+
+            // 名称
+            document.getElementById('province-name').textContent = p.name;
+            document.getElementById('province-sub').textContent =
+                p.name.toUpperCase() + ' · 区域电网';
+
+            // 功率（加微小波动模拟实时变化）
+            const fluctuation = 1 + (Math.random() - 0.5) * 0.06;
+            const displayPower = Math.round(p.power * fluctuation);
+            document.getElementById('metric-power').textContent = displayPower;
+
+            // 状态判定
+            let statusClass, statusText;
+            if (p.power > 6000) {
+                statusClass = 'high'; statusText = '高负荷';
+            } else if (p.power > 2500) {
+                statusClass = 'normal'; statusText = '正常';
+            } else {
+                statusClass = 'low'; statusText = '低负荷';
+            }
+
+            const badge = document.getElementById('status-badge');
+            badge.className = 'status-badge ' + statusClass;
+            badge.innerHTML = '<span class="status-dot ' + statusClass + '"></span> ' + statusText;
+
+            // 排名（按功率降序）
+            const sorted = [...provinces].sort((a, b) => b.power - a.power);
+            const rank = sorted.findIndex(pp => pp.name === p.name) + 1;
+            document.getElementById('metric-rank').textContent = '#' + rank + ' / ' + provinces.length;
+        }
+
+        function showToast(name) {
+            const toast = document.getElementById('province-toast');
+            toast.textContent = name;
+            toast.classList.add('show');
+            clearTimeout(toast._timeout);
+            toast._timeout = setTimeout(() => {
+                toast.classList.remove('show');
+            }, 800);
+        }
+
+        // ==================== 6. 启动 ====================
         document.addEventListener('DOMContentLoaded', () => {
             initThree();
             initMediaPipe();
             animate();
-
-            // 形状切换
-            const shapeBtns = document.querySelectorAll('.shape-btn');
-            shapeBtns.forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    // 更新 UI
-                    shapeBtns.forEach(b => b.classList.remove('active'));
-                    e.target.classList.add('active');
-                    
-                    // 更新逻辑
-                    const shapeKey = e.target.dataset.shape;
-                    if (shapes[shapeKey]) {
-                        currentShape = shapeKey;
-                        targetPositions = shapes[shapeKey];
-                        // 随机打散一点当前位置，让变换更有趣
-                        const pos = particles.geometry.attributes.position.array;
-                        for(let i=0; i<pos.length; i++) {
-                            pos[i] += (Math.random()-0.5) * 5;
-                        }
-                    }
-                });
-            });
+            updateDashboard();
 
             // 颜色选择
-            const colorPicker = document.getElementById('color-picker');
-            colorPicker.addEventListener('input', (e) => {
-                particles.material.color.set(e.target.value);
+            document.getElementById('color-picker').addEventListener('input', (e) => {
+                baseParticleColor.set(e.target.value);
+                particles.material.color.copy(baseParticleColor);
             });
 
-            // UI 显隐
-            const panel = document.getElementById('ui-panel');
-            const toggleUiBtn = document.getElementById('toggle-ui');
-            toggleUiBtn.addEventListener('click', () => {
-                panel.classList.toggle('collapsed');
+            // 面板折叠
+            const dashboard = document.getElementById('dashboard');
+            document.getElementById('toggle-ui').addEventListener('click', () => {
+                dashboard.classList.toggle('collapsed');
             });
 
             // 全屏
-            const toggleFsBtn = document.getElementById('toggle-fs');
-            toggleFsBtn.addEventListener('click', () => {
+            document.getElementById('toggle-fs').addEventListener('click', () => {
                 if (!document.fullscreenElement) {
                     document.documentElement.requestFullscreen();
-                } else {
-                    if (document.exitFullscreen) {
-                        document.exitFullscreen();
-                    }
+                } else if (document.exitFullscreen) {
+                    document.exitFullscreen();
                 }
             });
-        });
 
+            // 键盘切换（备用）
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowRight') nextProvince();
+                if (e.key === 'ArrowLeft') prevProvince();
+            });
+        });
     </script>
 </body>
 </html>
