@@ -539,8 +539,9 @@
         // ==================== 配置与全局变量 ====================
         const PILLARS_PER_PROVINCE = 4;
         const TOTAL_INSTANCES = 34 * PILLARS_PER_PROVINCE;
-        const SWIPE_THRESHOLD = 0.12;
-        const COOLDOWN_MS = 400;
+        const SWIPE_THRESHOLD = 0.13;
+        const SWIPE_COOLDOWN_MS = 350;
+        const HAND_QUEUE_MAX = 8; // 滑动窗口帧数
 
         let scene, camera, renderer;
         let normalMesh, highlightMesh, matCyan, matRed, boxGeo, dummy;
@@ -748,7 +749,6 @@
                 return;
             }
 
-            const now = performance.now();
             const handSeen = { Left: false, Right: false };
 
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
@@ -760,28 +760,45 @@
                 handSeen[label] = true;
                 const handX = landmarks[9].x;
 
+                // 初始化队列
                 if (!handHistory[label]) handHistory[label] = [];
-                handHistory[label].push({ x: handX, time: now });
 
-                handHistory[label] = handHistory[label].filter(h => now - h.time < 150);
-                if (handHistory[label].length < 2) continue;
+                // 入队：压入当前帧 X 坐标
+                handHistory[label].push(handX);
 
-                const oldest = handHistory[label][0];
-                const newest = handHistory[label][handHistory[label].length - 1];
-                const deltaX = newest.x - oldest.x;
+                // 维持固定窗口大小
+                while (handHistory[label].length > HAND_QUEUE_MAX) {
+                    handHistory[label].shift();
+                }
 
-                if (Math.abs(deltaX) > SWIPE_THRESHOLD && !isCooldown) {
+                // 队列未满时不判定
+                if (handHistory[label].length < HAND_QUEUE_MAX) continue;
+
+                // 净位移 = 最新帧 − 最老帧
+                const totalDeltaX = handHistory[label][HAND_QUEUE_MAX - 1] - handHistory[label][0];
+
+                if (Math.abs(totalDeltaX) > SWIPE_THRESHOLD && !isCooldown) {
+                    const direction = totalDeltaX > 0 ? '→R' : '←L';
+                    console.log(
+                        '%c[SWIPE] %c' + label + ' %c' + direction +
+                        ' %cΔ=' + totalDeltaX.toFixed(3) + ' %c→ ' +
+                        (label === 'Left' ? 'NEXT' : 'PREV'),
+                        'color:#00f2fe', 'color:#fff', 'color:#ffb74d',
+                        'color:#aaa', 'color:#0f0'
+                    );
+
                     if (label === 'Left') {
                         nextProvince();
                     } else if (label === 'Right') {
                         prevProvince();
                     }
 
+                    // 进入冷却
                     isCooldown = true;
-                    setTimeout(() => { isCooldown = false; }, COOLDOWN_MS);
+                    setTimeout(() => { isCooldown = false; }, SWIPE_COOLDOWN_MS);
 
-                    handHistory.Left = [];
-                    handHistory.Right = [];
+                    // 只清空触发手队列，另一只手不受影响
+                    handHistory[label] = [];
                     break;
                 }
             }
