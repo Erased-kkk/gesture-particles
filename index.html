@@ -537,18 +537,19 @@
 
     <script>
         // ==================== 配置与全局变量 ====================
-        const PARTICLE_COUNT = 15000;
+        const PILLARS_PER_PROVINCE = 4;
+        const TOTAL_INSTANCES = 34 * PILLARS_PER_PROVINCE;
         const SWIPE_THRESHOLD = 0.12;
         const COOLDOWN_MS = 400;
 
-        let scene, camera, renderer, particles, geometry;
-        let targetPositions = new Float32Array(PARTICLE_COUNT * 3);
-        let provinceParticleRanges = [];
+        let scene, camera, renderer;
+        let normalMesh, highlightMesh, matCyan, matRed, boxGeo, dummy;
+        let pillars = [];
+        let highlightedData = [];
         let selectedProvinceIndex = 0;
         let handHistory = { Left: [], Right: [] };
         let isCooldown = false;
         let provinceHighlightFactor = 0;
-        let baseParticleColor = new THREE.Color('#ffaa33');
 
         // ==================== 34 省份数据 ====================
         // x=经度映射(-20~+20), z=纬度映射(+15北~-15南), power=模拟用电量(万kW)
@@ -604,12 +605,12 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.body.appendChild(renderer.domElement);
 
-            // 网格地板 - 全息感
+            // 全息网格地板
             const gridHelper = new THREE.PolarGridHelper(28, 64, 40, 128, 0x0a1a2e, 0x0a1a2e);
             gridHelper.position.y = -12;
             scene.add(gridHelper);
 
-            // 中心辉光
+            // 中心辉光环
             const glowGeo = new THREE.RingGeometry(0, 25, 64);
             const glowMat = new THREE.MeshBasicMaterial({ color: 0x061a2e, side: THREE.DoubleSide, transparent: true, opacity: 0.35 });
             const glowRing = new THREE.Mesh(glowGeo, glowMat);
@@ -617,81 +618,92 @@
             glowRing.position.y = -11.5;
             scene.add(glowRing);
 
-            // 粒子系统
-            geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(PARTICLE_COUNT * 3);
-            for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
-                positions[i] = (Math.random() - 0.5) * 60;
-            }
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            // 共享几何体：BoxGeometry 科技棱柱
+            boxGeo = new THREE.BoxGeometry(0.8, 1, 0.8);
 
-            const material = new THREE.PointsMaterial({
-                color: baseParticleColor,
-                size: 0.45,
-                transparent: true,
-                opacity: 0.85,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
-            });
+            // 材质：正常（科技青）+ 高亮（警告红）
+            matCyan = new THREE.MeshBasicMaterial({ color: 0x00f2fe, transparent: true, opacity: 0.7 });
+            matRed  = new THREE.MeshBasicMaterial({ color: 0xff5f6d, transparent: true, opacity: 0.9 });
 
-            particles = new THREE.Points(geometry, material);
-            scene.add(particles);
+            // InstancedMesh：正常层（全部 136 实例）
+            normalMesh = new THREE.InstancedMesh(boxGeo, matCyan, TOTAL_INSTANCES);
+            normalMesh.count = TOTAL_INSTANCES;
+            scene.add(normalMesh);
 
-            generateShapes();
-            targetPositions = new Float32Array(shapes.map);
+            // InstancedMesh：高亮层（仅选中省份棱柱）
+            highlightMesh = new THREE.InstancedMesh(boxGeo, matRed, PILLARS_PER_PROVINCE);
+            highlightMesh.count = 0;
+            scene.add(highlightMesh);
+
+            // 矩阵计算辅助对象（复用）
+            dummy = new THREE.Object3D();
+
+            buildPillars();
+            updateHighlightMesh();
 
             window.addEventListener('resize', onWindowResize);
         }
 
-        // ==================== 2. 地图粒子热力生成 ====================
-        const shapes = { map: [] };
+        // ==================== 2. 棱柱矩阵生成与切换 ====================
+        function buildPillars() {
+            const offsets = [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]];
+            let idx = 0;
 
-        function generateShapes() {
-            const totalPower = provinces.reduce((s, p) => s + p.power, 0);
-            const mapArr = [];
-            provinceParticleRanges = [];
-
-            let offset = 0;
             for (let pi = 0; pi < provinces.length; pi++) {
                 const p = provinces[pi];
-                const count = Math.round(PARTICLE_COUNT * (p.power / totalPower));
-                const actualCount = pi === provinces.length - 1
-                    ? PARTICLE_COUNT - offset
-                    : count;
+                const baseY = p.power / 500;
 
-                // 扩散半径 = 基础半径 + 用电量加成
-                const baseRadius = 1.5;
-                const powerRadius = (p.power / 8500) * 3.5;
-                const radius = baseRadius + powerRadius;
+                for (let oi = 0; oi < PILLARS_PER_PROVINCE; oi++) {
+                    const px = p.x + offsets[oi][0];
+                    const pz = p.z + offsets[oi][1];
 
-                for (let i = 0; i < actualCount; i++) {
-                    // 圆盘内随机分布 (高斯偏移让中心更密)
-                    const angle = Math.random() * Math.PI * 2;
-                    const dist = Math.sqrt(Math.random()) * radius * (0.6 + Math.random() * 0.8);
-                    const px = p.x + Math.cos(angle) * dist;
-                    const pz = p.z + Math.sin(angle) * dist * 0.7; // 纬度方向略微压缩
+                    dummy.position.set(px, baseY / 2, pz);
+                    dummy.scale.set(1, baseY, 1);
+                    dummy.updateMatrix();
+                    normalMesh.setMatrixAt(idx, dummy.matrix);
 
-                    // Y 高度 = 功率映射 + 随机噪声
-                    const baseY = p.power / 500;
-                    const py = baseY * (0.5 + Math.random() * 0.5) + (Math.random() - 0.5) * 1.5;
-
-                    mapArr.push(px, py, pz);
+                    pillars.push({ provinceIdx: pi, baseX: px, baseZ: pz, baseY });
+                    idx++;
                 }
-
-                provinceParticleRanges.push({ start: offset, end: offset + actualCount - 1 });
-                offset += actualCount;
             }
 
-            // 补齐差额粒子（浮点舍入导致）
-            while (offset < PARTICLE_COUNT) {
-                const p = provinces[0];
-                const angle = Math.random() * Math.PI * 2;
-                const dist = Math.random() * 2;
-                mapArr.push(p.x + Math.cos(angle) * dist, p.power / 500 * Math.random(), p.z + Math.sin(angle) * dist);
-                offset++;
+            normalMesh.instanceMatrix.needsUpdate = true;
+        }
+
+        function updateHighlightMesh() {
+            highlightedData = [];
+
+            // 隐藏选中省份棱柱（移入地下），其余恢复正常
+            for (let i = 0; i < pillars.length; i++) {
+                const p = pillars[i];
+
+                if (p.provinceIdx === selectedProvinceIndex) {
+                    dummy.position.set(p.baseX, -50, p.baseZ);
+                    dummy.scale.set(1, 0.01, 1);
+                    dummy.updateMatrix();
+                    normalMesh.setMatrixAt(i, dummy.matrix);
+                    highlightedData.push({ baseX: p.baseX, baseZ: p.baseZ, baseY: p.baseY });
+                } else {
+                    dummy.position.set(p.baseX, p.baseY / 2, p.baseZ);
+                    dummy.scale.set(1, p.baseY, 1);
+                    dummy.updateMatrix();
+                    normalMesh.setMatrixAt(i, dummy.matrix);
+                }
             }
 
-            shapes.map = new Float32Array(mapArr);
+            normalMesh.instanceMatrix.needsUpdate = true;
+
+            // 高亮层矩阵
+            for (let hi = 0; hi < highlightedData.length; hi++) {
+                const d = highlightedData[hi];
+                dummy.position.set(d.baseX, d.baseY / 2 + 3, d.baseZ);
+                dummy.scale.set(1, d.baseY, 1);
+                dummy.updateMatrix();
+                highlightMesh.setMatrixAt(hi, dummy.matrix);
+            }
+
+            highlightMesh.count = highlightedData.length;
+            highlightMesh.instanceMatrix.needsUpdate = true;
         }
 
         // ==================== 3. MediaPipe 双手滑动识别 ====================
@@ -799,8 +811,7 @@
             provinceHighlightFactor = 0;
             updateDashboard();
             showToast(provinces[selectedProvinceIndex].name);
-            // 激发选中省份粒子
-            scatterProvinceParticles(selectedProvinceIndex);
+            updateHighlightMesh();
         }
 
         function prevProvince() {
@@ -808,20 +819,7 @@
             provinceHighlightFactor = 0;
             updateDashboard();
             showToast(provinces[selectedProvinceIndex].name);
-            scatterProvinceParticles(selectedProvinceIndex);
-        }
-
-        function scatterProvinceParticles(index) {
-            const range = provinceParticleRanges[index];
-            if (!range) return;
-            const pos = particles.geometry.attributes.position.array;
-            for (let i = range.start; i <= range.end; i++) {
-                const i3 = i * 3;
-                pos[i3 + 1] += (Math.random() - 0.5) * 4;
-                pos[i3] += (Math.random() - 0.5) * 2;
-                pos[i3 + 2] += (Math.random() - 0.5) * 2;
-            }
-            particles.geometry.attributes.position.needsUpdate = true;
+            updateHighlightMesh();
         }
 
         // ==================== 4. 动画循环 ====================
@@ -829,42 +827,31 @@
             fpsFrames++;
             requestAnimationFrame(animate);
 
-            const positions = particles.geometry.attributes.position.array;
             const time = Date.now() * 0.001;
 
-            // 选中省份呼吸高亮因子
+            // 呼吸高亮因子
             provinceHighlightFactor += (1 - provinceHighlightFactor) * 0.08;
-            const boost = Math.sin(time * 3) * 3 + 3; // 0~6 浮动范围
+            const boost = Math.sin(time * 3) * 1.5;
 
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                const i3 = i * 3;
-                const tx = targetPositions[i3];
-                const ty = targetPositions[i3 + 1];
-                const tz = targetPositions[i3 + 2];
-
-                let lx = tx;
-                let ly = ty;
-                let lz = tz;
-
-                const lerpSpeed = 0.04;
-
-                positions[i3]     += (lx - positions[i3]) * lerpSpeed;
-                positions[i3 + 1] += (ly - positions[i3 + 1]) * lerpSpeed;
-                positions[i3 + 2] += (lz - positions[i3 + 2]) * lerpSpeed;
-            }
-
-            // 选中省份粒子浮动上升
-            const range = provinceParticleRanges[selectedProvinceIndex];
-            if (range) {
-                for (let i = range.start; i <= range.end; i++) {
-                    const i3 = i * 3;
-                    const ty = targetPositions[i3 + 1];
-                    positions[i3 + 1] += (ty + boost * provinceHighlightFactor - positions[i3 + 1]) * 0.06;
+            // 高亮棱柱呼吸升降
+            if (highlightMesh.count > 0) {
+                for (let hi = 0; hi < highlightedData.length; hi++) {
+                    const d = highlightedData[hi];
+                    dummy.position.set(
+                        d.baseX,
+                        d.baseY / 2 + 3 + boost * provinceHighlightFactor,
+                        d.baseZ
+                    );
+                    dummy.scale.set(1, d.baseY, 1);
+                    dummy.updateMatrix();
+                    highlightMesh.setMatrixAt(hi, dummy.matrix);
                 }
+                highlightMesh.instanceMatrix.needsUpdate = true;
             }
 
-            particles.geometry.attributes.position.needsUpdate = true;
-            particles.rotation.y += 0.0008;
+            // 全局缓慢旋转
+            normalMesh.rotation.y += 0.0008;
+            highlightMesh.rotation.y += 0.0008;
 
             renderer.render(scene, camera);
         }
@@ -923,10 +910,9 @@
             animate();
             updateDashboard();
 
-            // 颜色选择
+            // 颜色选择：更新正常棱柱材质，高亮棱柱保持警告红
             document.getElementById('color-picker').addEventListener('input', (e) => {
-                baseParticleColor.set(e.target.value);
-                particles.material.color.copy(baseParticleColor);
+                matCyan.color.set(e.target.value);
                 document.getElementById('color-hex').textContent = e.target.value.toUpperCase();
             });
 
