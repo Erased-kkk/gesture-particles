@@ -3,237 +3,529 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全国用电量实时全息看板</title>
+    <title>NATIONAL POWER GRID · 全国电网全息调度</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; overflow: hidden; background-color: #050510; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
-        canvas { display: block; }
+        :root {
+            --bg-deep: #060913;
+            --cyan: #00f2fe;
+            --green: #00e575;
+            --red: #ff5f6d;
+            --amber: #ffb74d;
+            --panel-bg: rgba(10, 16, 30, 0.88);
+            --border: rgba(0, 242, 254, 0.18);
+            --border-bright: rgba(0, 242, 254, 0.35);
+            --text-dim: rgba(160, 200, 240, 0.55);
+            --text-bright: rgba(210, 235, 255, 0.9);
+            --font-mono: 'Share Tech Mono', 'Fira Code', 'Consolas', 'Courier New', monospace;
+            --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        }
 
-        #video-container {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            width: 160px;
-            height: 120px;
-            border-radius: 12px;
+        body {
+            margin: 0;
             overflow: hidden;
-            border: 2px solid rgba(255,255,255,0.2);
-            z-index: 10;
-            display: block;
-        }
-        #input_video { transform: scaleX(-1); width: 100%; height: 100%; object-fit: cover; }
-
-        /* 全息地板网格线 */
-        #grid-overlay {
-            position: absolute;
-            bottom: 0; left: 0; right: 0; height: 40%;
-            background: radial-gradient(ellipse at center, rgba(0,150,255,0.06) 0%, transparent 70%);
-            pointer-events: none;
-            z-index: 1;
-        }
-
-        /* 玻璃拟态主看板 */
-        #dashboard {
-            position: absolute;
-            top: 24px;
-            left: 24px;
-            width: 320px;
-            background: rgba(10, 15, 30, 0.65);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-radius: 20px;
-            border: 1px solid rgba(100, 180, 255, 0.15);
-            box-shadow: 0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
-            padding: 24px;
+            background-color: var(--bg-deep);
+            background-image:
+                linear-gradient(rgba(0,242,254,0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,242,254,0.025) 1px, transparent 1px);
+            background-size: 48px 48px;
+            background-position: 0 0;
+            font-family: var(--font-ui);
             color: #fff;
-            z-index: 100;
-            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+            user-select: none;
         }
-        #dashboard.collapsed {
+        canvas { display: block; position: fixed; top: 0; left: 0; z-index: 0; }
+
+        /* ========== 顶部通栏 ========== */
+        #top-bar {
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 48px;
+            background: linear-gradient(180deg, rgba(6,9,19,0.95) 40%, rgba(6,9,19,0) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 110;
+            pointer-events: none;
+        }
+        #top-bar .sys-title {
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 5px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            font-family: var(--font-mono);
+        }
+        #top-bar .sys-title span {
+            color: var(--cyan);
+            font-weight: 700;
+            margin: 0 6px;
+        }
+        #top-bar::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 50%;
+            transform: translateX(-50%);
+            width: 360px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+            opacity: 0.4;
+        }
+
+        /* ========== 左侧战术面板 ========== */
+        #hud-left {
+            position: absolute;
+            top: 72px; left: 20px;
+            width: 300px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: transform 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.35s ease;
+        }
+        #hud-left.collapsed {
             transform: translateX(-110%);
             opacity: 0;
             pointer-events: none;
         }
 
-        .dash-title {
-            font-size: 14px;
-            font-weight: 500;
-            letter-spacing: 2px;
-            color: rgba(180, 210, 255, 0.8);
-            margin-bottom: 6px;
+        /* ========== 豆腐块面板基类 ========== */
+        .bento {
+            position: relative;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            padding: 16px 18px;
+            color: #fff;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+        /* L型直角括号 — 左上 */
+        .bento::before {
+            content: '';
+            position: absolute;
+            top: -1px; left: -1px;
+            width: 10px; height: 10px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+            opacity: 0.7;
+        }
+        /* L型直角括号 — 右下 */
+        .bento::after {
+            content: '';
+            position: absolute;
+            bottom: -1px; right: -1px;
+            width: 10px; height: 10px;
+            border-bottom: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+            opacity: 0.7;
+        }
+
+        .bento-label {
+            font-size: 10px;
+            letter-spacing: 3px;
+            color: var(--text-dim);
             text-transform: uppercase;
-        }
-        .dash-divider {
-            height: 1px;
-            background: linear-gradient(90deg, rgba(0,150,255,0.4), transparent);
-            margin-bottom: 18px;
+            margin-bottom: 10px;
+            font-family: var(--font-mono);
         }
 
-        .province-name {
-            font-size: 36px;
+        /* ---------- 省份名称卡片 ---------- */
+        #province-card { padding: 18px 20px 14px; }
+        #province-name {
+            font-size: 42px;
             font-weight: 700;
-            letter-spacing: 4px;
-            background: linear-gradient(135deg, #60b0ff, #c0e0ff);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 4px;
-            transition: all 0.3s ease;
+            letter-spacing: 6px;
+            color: var(--text-bright);
+            font-family: var(--font-ui);
+            margin-bottom: 2px;
+            text-shadow: 0 0 30px rgba(0,242,254,0.25);
         }
-        .province-sub {
-            font-size: 11px;
-            color: rgba(255,255,255,0.4);
-            letter-spacing: 1px;
-            margin-bottom: 20px;
+        #province-sub {
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            font-family: var(--font-mono);
         }
 
-        .metric-row {
+        /* ---------- 负荷数据卡片 ---------- */
+        #load-card .load-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .load-item .load-label {
+            font-size: 9px;
+            letter-spacing: 2px;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+            font-family: var(--font-mono);
+        }
+        .load-item .load-value {
+            font-size: 28px;
+            font-weight: 600;
+            color: var(--cyan);
+            font-family: var(--font-mono);
+            letter-spacing: 0;
+            text-shadow: 0 0 12px rgba(0,242,254,0.35);
+        }
+        .load-item .load-unit {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-left: 3px;
+            font-family: var(--font-mono);
+        }
+
+        /* ---------- 状态卡片 ---------- */
+        #status-card .status-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
         }
-        .metric-label { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 1px; }
-        .metric-value { font-size: 22px; font-weight: 600; color: #ffb74d; transition: all 0.3s ease; }
-        .metric-unit { font-size: 11px; color: rgba(255,255,255,0.4); margin-left: 4px; }
-
-        .status-badge {
-            display: inline-flex;
+        .status-indicator {
+            display: flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
+            gap: 8px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            letter-spacing: 2px;
+            padding: 4px 0;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 2px;
+            display: inline-block;
+        }
+        .status-dot.high { background: var(--red); box-shadow: 0 0 10px var(--red), 0 0 20px var(--red); }
+        .status-dot.normal { background: var(--green); box-shadow: 0 0 10px var(--green), 0 0 20px var(--green); }
+        .status-dot.low { background: var(--cyan); box-shadow: 0 0 10px var(--cyan), 0 0 20px var(--cyan); }
+        .status-text.high { color: var(--red); }
+        .status-text.normal { color: var(--green); }
+        .status-text.low { color: var(--cyan); }
+
+        /* ---------- 排名卡片 ---------- */
+        #rank-value {
+            font-size: 32px;
+            font-family: var(--font-mono);
+            color: var(--green);
+            text-shadow: 0 0 10px rgba(0,229,117,0.4);
+        }
+        #rank-sub {
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            font-family: var(--font-mono);
+        }
+
+        /* ========== 右侧状态栏 ========== */
+        #hud-right {
+            position: absolute;
+            top: 72px; right: 20px;
+            width: 280px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: transform 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.35s ease;
+        }
+        #hud-right.collapsed {
+            transform: translateX(110%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* ---------- 手势追踪状态模块 ---------- */
+        .hand-monitor {
+            padding: 14px 16px;
+        }
+        .hand-monitor-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .hand-blink {
+            width: 8px; height: 8px;
+            border-radius: 2px;
+            background: var(--text-dim);
+            transition: background 0.2s;
+        }
+        .hand-blink.tracking { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink-pulse 1.2s ease-in-out infinite; }
+        .hand-blink.lost { background: rgba(255,255,255,0.2); }
+        @keyframes blink-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .hand-label {
+            font-size: 11px;
+            letter-spacing: 2px;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+        }
+        .hand-status-text {
+            font-size: 10px;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+        }
+        .hand-status-text.active { color: var(--green); }
+
+        /* ---------- 粒子色控制 ---------- */
+        #color-card .color-inner {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        #color-picker {
+            width: 28px; height: 28px;
+            border: 1px solid var(--border-bright);
+            background: transparent;
+            cursor: pointer;
+            padding: 0;
+            border-radius: 2px;
+        }
+        .color-hex {
+            font-size: 13px;
+            color: var(--cyan);
+            font-family: var(--font-mono);
             letter-spacing: 1px;
         }
-        .status-badge.high { background: rgba(255,80,80,0.2); color: #ff7070; border: 1px solid rgba(255,80,80,0.3); }
-        .status-badge.normal { background: rgba(100,200,100,0.15); color: #80e080; border: 1px solid rgba(100,200,100,0.25); }
-        .status-badge.low { background: rgba(60,140,255,0.15); color: #80b8ff; border: 1px solid rgba(60,140,255,0.25); }
 
-        .status-dot { width: 6px; height: 6px; border-radius: 50%; }
-        .status-dot.high { background: #ff5050; box-shadow: 0 0 8px #ff5050; }
-        .status-dot.normal { background: #60e060; box-shadow: 0 0 8px #60e060; }
-        .status-dot.low { background: #5090ff; box-shadow: 0 0 8px #5090ff; }
+        /* ---------- 操作提示 ---------- */
+        #hint-card .hint-line {
+            font-size: 9px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+            line-height: 2;
+            font-family: var(--font-mono);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .hint-dot { width: 5px; height: 5px; border-radius: 1px; background: var(--cyan); opacity: 0.5; }
 
-        .color-row { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
-        .color-row label { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 1px; }
-        #color-picker {
-            width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);
-            background: transparent; cursor: pointer; padding: 2px;
+        /* ========== 底部元素 ========== */
+        #video-container {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 150px;
+            height: 110px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            z-index: 10;
+            opacity: 0.5;
+        }
+        #video-container::before {
+            content: 'CAM LIVE';
+            position: absolute;
+            top: 4px; left: 6px;
+            font-size: 8px;
+            letter-spacing: 2px;
+            color: var(--red);
+            font-family: var(--font-mono);
+            z-index: 2;
+        }
+        #input_video { transform: scaleX(-1); width: 100%; height: 100%; object-fit: cover; filter: grayscale(0.3) brightness(0.8); }
+
+        /* 底部状态栏 */
+        #bottom-bar {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 28px;
+            background: linear-gradient(0deg, rgba(6,9,19,0.9) 40%, rgba(6,9,19,0) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+        #bottom-bar .sys-info {
+            font-size: 9px;
+            letter-spacing: 3px;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+        }
+        #bottom-bar .sys-info em {
+            font-style: normal;
+            color: var(--cyan);
         }
 
-        .hint-row { margin-top: 14px; font-size: 10px; color: rgba(255,255,255,0.3); line-height: 1.6; }
-
-        /* 浮动按钮 */
-        .float-btn {
+        /* ========== 全局控制按钮 ========== */
+        .ctrl-btn {
             position: absolute;
-            top: 24px;
-            width: 40px; height: 40px;
-            background: rgba(10, 15, 30, 0.6);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 50%;
+            top: 72px;
+            width: 36px; height: 36px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            z-index: 90;
-            border: 1px solid rgba(255,255,255,0.1);
-            color: white;
-            font-size: 18px;
+            z-index: 110;
+            color: var(--text-dim);
+            font-size: 16px;
             transition: 0.2s;
         }
-        .float-btn:hover { background: rgba(255,255,255,0.15); }
-        #toggle-ui { left: 24px; top: auto; bottom: 24px; }
-        #toggle-fs { right: 24px; }
+        .ctrl-btn:hover { border-color: var(--border-bright); color: var(--cyan); }
+        #btn-fs { right: 20px; top: 22px; }
+        #btn-toggle-left { left: 20px; bottom: 40px; }
+        #btn-toggle-right { right: 20px; bottom: 40px; }
 
+        /* ========== Loading + Toast ========== */
         #loading {
             position: absolute;
             top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            color: white;
-            font-size: 20px;
+            color: var(--text-bright);
+            font-size: 16px;
             text-align: center;
             z-index: 200;
             pointer-events: none;
             transition: opacity 0.5s;
+            font-family: var(--font-mono);
+            letter-spacing: 3px;
         }
         .spinner {
-            width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3);
-            border-top: 4px solid #ffb74d; border-radius: 50%;
-            animation: spin 1s linear infinite; margin: 0 auto 10px;
+            width: 36px; height: 36px;
+            border: 3px solid rgba(0,242,254,0.15);
+            border-top: 3px solid var(--cyan);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* 省份切换过渡提示 */
         #province-toast {
             position: absolute;
             top: 50%; left: 50%;
             transform: translate(-50%, -50%) scale(0);
-            font-size: 60px;
+            font-size: 56px;
             font-weight: 700;
-            letter-spacing: 6px;
-            color: rgba(255,200,100,0.9);
+            letter-spacing: 8px;
+            color: var(--cyan);
             pointer-events: none;
             z-index: 50;
-            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease;
             opacity: 0;
+            text-shadow: 0 0 40px rgba(0,242,254,0.5);
+            font-family: var(--font-ui);
+            transition: transform 0.35s cubic-bezier(0.175,0.885,0.32,1.275), opacity 0.3s ease;
         }
         #province-toast.show {
             transform: translate(-50%, -50%) scale(1);
-            opacity: 1;
+            opacity: 0.85;
         }
     </style>
 </head>
 <body>
 
-    <div id="loading">
-        <div class="spinner"></div>
-        <div>正在启动全国电力全息看板...</div>
+    <!-- 顶部系统通栏 -->
+    <div id="top-bar">
+        <div class="sys-title">NATIONAL<span>POWER</span>GRID · 全国电网全息调度系统</div>
     </div>
 
-    <div id="grid-overlay"></div>
+    <!-- 加载 -->
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>SYS INITIALIZING...</div>
+    </div>
 
+    <!-- 摄像头 -->
     <div id="video-container">
         <video id="input_video"></video>
     </div>
 
-    <div id="dashboard">
-        <div class="dash-title">⚡ 全国用电量实时全息看板</div>
-        <div class="dash-divider"></div>
-        <div class="province-name" id="province-name">北京</div>
-        <div class="province-sub" id="province-sub">BEIJING · 华北电网</div>
+    <!-- ====== 左侧战术面板 ====== -->
+    <div id="hud-left">
 
-        <div class="metric-row">
-            <span class="metric-label">实时负荷</span>
-            <span><span class="metric-value" id="metric-power">3200</span><span class="metric-unit">万 kW</span></span>
+        <!-- 省份名称 -->
+        <div class="bento" id="province-card">
+            <div class="bento-label">// SELECTED PROVINCE</div>
+            <div id="province-name">北京</div>
+            <div id="province-sub">BEIJING</div>
         </div>
 
-        <div class="metric-row">
-            <span class="metric-label">运行状态</span>
-            <span class="status-badge normal" id="status-badge">
-                <span class="status-dot normal"></span> 正常
-            </span>
+        <!-- 负荷数据 -->
+        <div class="bento" id="load-card">
+            <div class="bento-label">// TELEMETRY · 实时遥测</div>
+            <div class="load-grid">
+                <div class="load-item">
+                    <div class="load-label">LOAD_MW</div>
+                    <div><span class="load-value" id="metric-power">3200</span><span class="load-unit">万kW</span></div>
+                </div>
+                <div class="load-item">
+                    <div class="load-label">RANK</div>
+                    <div style="display:flex;align-items:baseline;gap:4px;">
+                        <span id="rank-value" style="font-family:var(--font-mono);font-size:28px;color:var(--green);">#12</span>
+                        <span id="rank-sub">/ 34</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <div class="metric-row">
-            <span class="metric-label">省内排名</span>
-            <span style="font-size:14px;color:rgba(255,255,255,0.7);" id="metric-rank">#12 / 34</span>
-        </div>
-
-        <div class="color-row">
-            <label>粒子色</label>
-            <input type="color" id="color-picker" value="#ffaa33">
-        </div>
-
-        <div class="hint-row">
-            🖐 左手滑动 → 下一省<br>
-            ✋ 右手滑动 → 上一省
+        <!-- 运行状态 -->
+        <div class="bento" id="status-card">
+            <div class="bento-label">// OPER STATUS</div>
+            <div class="status-row">
+                <div class="status-indicator" id="status-indicator">
+                    <span class="status-dot normal"></span>
+                    <span class="status-text normal">NOMINAL</span>
+                </div>
+                <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim);" id="status-code">CODE 0x00</span>
+            </div>
         </div>
     </div>
 
-    <div id="toggle-fs" class="float-btn" title="全屏">⛶</div>
-    <div id="toggle-ui" class="float-btn" title="切换面板">☰</div>
+    <!-- ====== 右侧状态栏 ====== -->
+    <div id="hud-right">
+
+        <!-- 左手手势追踪 -->
+        <div class="bento hand-monitor" id="hand-left-monitor">
+            <div class="hand-monitor-header">
+                <span class="hand-blink lost" id="hand-left-blink"></span>
+                <span class="hand-label">L-HAND</span>
+            </div>
+            <div class="hand-status-text" id="hand-left-text">--- SCANNING</div>
+        </div>
+
+        <!-- 右手手势追踪 -->
+        <div class="bento hand-monitor" id="hand-right-monitor">
+            <div class="hand-monitor-header">
+                <span class="hand-blink lost" id="hand-right-blink"></span>
+                <span class="hand-label">R-HAND</span>
+            </div>
+            <div class="hand-status-text" id="hand-right-text">--- SCANNING</div>
+        </div>
+
+        <!-- 粒子颜色 -->
+        <div class="bento" id="color-card">
+            <div class="bento-label">// PARTICLE COLOR</div>
+            <div class="color-inner">
+                <input type="color" id="color-picker" value="#ffaa33">
+                <span class="color-hex" id="color-hex">#FFAA33</span>
+            </div>
+        </div>
+
+        <!-- 操作提示 -->
+        <div class="bento" id="hint-card">
+            <div class="bento-label">// GESTURE MAP</div>
+            <div class="hint-line"><span class="hint-dot"></span> L-HAND SWIPE → NEXT PROV</div>
+            <div class="hint-line"><span class="hint-dot"></span> R-HAND SWIPE → PREV PROV</div>
+            <div class="hint-line"><span class="hint-dot"></span> ← → KEY → MANUAL</div>
+        </div>
+    </div>
+
+    <!-- 浮动按钮 -->
+    <div id="btn-fs" class="ctrl-btn" title="FULLSCREEN">⛶</div>
+    <div id="btn-toggle-left" class="ctrl-btn" title="TOGGLE LEFT">◀</div>
+    <div id="btn-toggle-right" class="ctrl-btn" title="TOGGLE RIGHT">▶</div>
+
+    <!-- 底部状态栏 -->
+    <div id="bottom-bar">
+        <div class="sys-info">SYS_READY · FPS <em id="fps-display">60</em> · GRID <em>34 NODES</em> · UPLINK <em>ONLINE</em></div>
+    </div>
+
+    <!-- 省份切换 Toast -->
     <div id="province-toast"></div>
 
     <!-- 引入库 -->
@@ -300,8 +592,8 @@
         // ==================== 1. Three.js 初始化 ====================
         function initThree() {
             scene = new THREE.Scene();
-            scene.fog = new THREE.FogExp2(0x050510, 0.0008);
-            scene.background = new THREE.Color(0x050510);
+            scene.fog = new THREE.FogExp2(0x060913, 0.0006);
+            scene.background = new THREE.Color(0x060913);
 
             camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
             camera.position.set(0, 38, 42);
@@ -313,13 +605,13 @@
             document.body.appendChild(renderer.domElement);
 
             // 网格地板 - 全息感
-            const gridHelper = new THREE.PolarGridHelper(28, 64, 40, 128, 0x1a3355, 0x1a3355);
+            const gridHelper = new THREE.PolarGridHelper(28, 64, 40, 128, 0x0a1a2e, 0x0a1a2e);
             gridHelper.position.y = -12;
             scene.add(gridHelper);
 
             // 中心辉光
             const glowGeo = new THREE.RingGeometry(0, 25, 64);
-            const glowMat = new THREE.MeshBasicMaterial({ color: 0x112244, side: THREE.DoubleSide, transparent: true, opacity: 0.3 });
+            const glowMat = new THREE.MeshBasicMaterial({ color: 0x061a2e, side: THREE.DoubleSide, transparent: true, opacity: 0.35 });
             const glowRing = new THREE.Mesh(glowGeo, glowMat);
             glowRing.rotation.x = -Math.PI / 2;
             glowRing.position.y = -11.5;
@@ -439,23 +731,26 @@
         }
 
         function onHandsResults(results) {
-            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) return;
+            if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                updateHandStatus({ Left: false, Right: false });
+                return;
+            }
 
             const now = performance.now();
+            const handSeen = { Left: false, Right: false };
 
             for (let i = 0; i < results.multiHandLandmarks.length; i++) {
                 const landmarks = results.multiHandLandmarks[i];
                 const handedness = results.multiHandedness[i];
                 if (!handedness) continue;
 
-                const label = handedness.label; // "Left" or "Right"
-                const handX = landmarks[9].x; // 中指根 x 坐标
+                const label = handedness.label;
+                handSeen[label] = true;
+                const handX = landmarks[9].x;
 
-                // 记录历史
                 if (!handHistory[label]) handHistory[label] = [];
                 handHistory[label].push({ x: handX, time: now });
 
-                // 保留最近 150ms 内的记录
                 handHistory[label] = handHistory[label].filter(h => now - h.time < 150);
                 if (handHistory[label].length < 2) continue;
 
@@ -463,7 +758,6 @@
                 const newest = handHistory[label][handHistory[label].length - 1];
                 const deltaX = newest.x - oldest.x;
 
-                // 检测快速滑动
                 if (Math.abs(deltaX) > SWIPE_THRESHOLD && !isCooldown) {
                     if (label === 'Left') {
                         nextProvince();
@@ -471,16 +765,33 @@
                         prevProvince();
                     }
 
-                    // 冷却
                     isCooldown = true;
                     setTimeout(() => { isCooldown = false; }, COOLDOWN_MS);
 
-                    // 清空历史防止重复触发
                     handHistory.Left = [];
                     handHistory.Right = [];
                     break;
                 }
             }
+
+            updateHandStatus(handSeen);
+        }
+
+        function updateHandStatus(seen) {
+            ['Left', 'Right'].forEach(side => {
+                const blink = document.getElementById('hand-' + side.toLowerCase() + '-blink');
+                const text = document.getElementById('hand-' + side.toLowerCase() + '-text');
+                if (!blink || !text) return;
+                if (seen[side]) {
+                    blink.className = 'hand-blink tracking';
+                    text.className = 'hand-status-text active';
+                    text.textContent = 'TRACKING · SWIPE READY';
+                } else {
+                    blink.className = 'hand-blink lost';
+                    text.className = 'hand-status-text';
+                    text.textContent = '--- SCANNING';
+                }
+            });
         }
 
         function nextProvince() {
@@ -515,6 +826,7 @@
 
         // ==================== 4. 动画循环 ====================
         function animate() {
+            fpsFrames++;
             requestAnimationFrame(animate);
 
             const positions = particles.geometry.attributes.position.array;
@@ -567,34 +879,30 @@
         function updateDashboard() {
             const p = provinces[selectedProvinceIndex];
 
-            // 名称
             document.getElementById('province-name').textContent = p.name;
-            document.getElementById('province-sub').textContent =
-                p.name.toUpperCase() + ' · 区域电网';
+            document.getElementById('province-sub').textContent = p.name.toUpperCase();
 
-            // 功率（加微小波动模拟实时变化）
             const fluctuation = 1 + (Math.random() - 0.5) * 0.06;
             const displayPower = Math.round(p.power * fluctuation);
             document.getElementById('metric-power').textContent = displayPower;
 
-            // 状态判定
-            let statusClass, statusText;
+            let statusClass, statusText, statusCode;
             if (p.power > 6000) {
-                statusClass = 'high'; statusText = '高负荷';
+                statusClass = 'high'; statusText = 'HIGH LOAD'; statusCode = 'CODE 0x03';
             } else if (p.power > 2500) {
-                statusClass = 'normal'; statusText = '正常';
+                statusClass = 'normal'; statusText = 'NOMINAL'; statusCode = 'CODE 0x00';
             } else {
-                statusClass = 'low'; statusText = '低负荷';
+                statusClass = 'low'; statusText = 'LOW LOAD'; statusCode = 'CODE 0x01';
             }
 
-            const badge = document.getElementById('status-badge');
-            badge.className = 'status-badge ' + statusClass;
-            badge.innerHTML = '<span class="status-dot ' + statusClass + '"></span> ' + statusText;
+            const indicator = document.getElementById('status-indicator');
+            indicator.innerHTML = '<span class="status-dot ' + statusClass + '"></span><span class="status-text ' + statusClass + '">' + statusText + '</span>';
+            document.getElementById('status-code').textContent = statusCode;
 
-            // 排名（按功率降序）
             const sorted = [...provinces].sort((a, b) => b.power - a.power);
             const rank = sorted.findIndex(pp => pp.name === p.name) + 1;
-            document.getElementById('metric-rank').textContent = '#' + rank + ' / ' + provinces.length;
+            document.getElementById('rank-value').textContent = '#' + rank;
+            document.getElementById('rank-sub').textContent = '/ ' + provinces.length;
         }
 
         function showToast(name) {
@@ -608,6 +916,7 @@
         }
 
         // ==================== 6. 启动 ====================
+        let fpsFrames = 0, fpsLast = performance.now();
         document.addEventListener('DOMContentLoaded', () => {
             initThree();
             initMediaPipe();
@@ -618,16 +927,23 @@
             document.getElementById('color-picker').addEventListener('input', (e) => {
                 baseParticleColor.set(e.target.value);
                 particles.material.color.copy(baseParticleColor);
+                document.getElementById('color-hex').textContent = e.target.value.toUpperCase();
             });
 
-            // 面板折叠
-            const dashboard = document.getElementById('dashboard');
-            document.getElementById('toggle-ui').addEventListener('click', () => {
-                dashboard.classList.toggle('collapsed');
+            // 左侧面板折叠
+            const hudLeft = document.getElementById('hud-left');
+            document.getElementById('btn-toggle-left').addEventListener('click', () => {
+                hudLeft.classList.toggle('collapsed');
+            });
+
+            // 右侧面板折叠
+            const hudRight = document.getElementById('hud-right');
+            document.getElementById('btn-toggle-right').addEventListener('click', () => {
+                hudRight.classList.toggle('collapsed');
             });
 
             // 全屏
-            document.getElementById('toggle-fs').addEventListener('click', () => {
+            document.getElementById('btn-fs').addEventListener('click', () => {
                 if (!document.fullscreenElement) {
                     document.documentElement.requestFullscreen();
                 } else if (document.exitFullscreen) {
@@ -635,12 +951,22 @@
                 }
             });
 
-            // 键盘切换（备用）
+            // FPS 计数
+            setInterval(() => {
+                const now = performance.now();
+                const elapsed = now - fpsLast;
+                document.getElementById('fps-display').textContent = Math.round(fpsFrames / (elapsed / 1000));
+                fpsFrames = 0;
+                fpsLast = now;
+            }, 1000);
+
+            // 键盘切换
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'ArrowRight') nextProvince();
                 if (e.key === 'ArrowLeft') prevProvince();
             });
         });
+
     </script>
 </body>
 </html>
